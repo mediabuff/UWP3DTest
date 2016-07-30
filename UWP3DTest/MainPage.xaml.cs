@@ -66,7 +66,7 @@ namespace UWP3DTest
             Utilities.Dispose(ref this.deviceContext);
             Utilities.Dispose(ref this.device);
 
-            Utilities.Dispose(ref this.triangleVertBuffer);
+            Utilities.Dispose(ref this.vertBuffer);
             Utilities.Dispose(ref this.vs);
             Utilities.Dispose(ref this.ps);
             Utilities.Dispose(ref this.vertLayout);
@@ -77,17 +77,15 @@ namespace UWP3DTest
             if (isDXInitialized)
             {
                 Size2 newSize = new Size2((int)e.NewSize.Width, (int)e.NewSize.Height);
+                
+                Utilities.Dispose(ref this.backBufferView);
+                Utilities.Dispose(ref this.backBufferTexture);
 
-                if (newSize.Width > swapChain.Description1.Width || newSize.Height > swapChain.Description1.Height)
-                {
-                    Utilities.Dispose(ref this.backBufferView);
-                    Utilities.Dispose(ref this.backBufferTexture);
+                swapChain.ResizeBuffers(swapChain.Description.BufferCount, (int)e.NewSize.Width, (int)e.NewSize.Height, swapChain.Description1.Format, swapChain.Description1.Flags);
 
-                    swapChain.ResizeBuffers(swapChain.Description.BufferCount, (int)e.NewSize.Width, (int)e.NewSize.Height, swapChain.Description1.Format, swapChain.Description1.Flags);
+                this.backBufferTexture = D3D11.Resource.FromSwapChain<D3D11.Texture2D>(this.swapChain, 0);
+                this.backBufferView = new D3D11.RenderTargetView(this.device, this.backBufferTexture);
 
-                    this.backBufferTexture = D3D11.Resource.FromSwapChain<D3D11.Texture2D>(this.swapChain, 0);
-                    this.backBufferView = new D3D11.RenderTargetView(this.device, this.backBufferTexture);
-                }
                 swapChain.SourceSize = newSize;
                 deviceContext.Rasterizer.SetViewport(0, 0, (int)e.NewSize.Width, (int)e.NewSize.Height);
             }
@@ -152,15 +150,8 @@ namespace UWP3DTest
 
             this.backBufferTexture = this.swapChain.GetBackBuffer<D3D11.Texture2D>(0);
             this.backBufferView = new D3D11.RenderTargetView(this.device, this.backBufferTexture);
-            this.deviceContext.OutputMerger.SetRenderTargets(this.backBufferView);
-
-            deviceContext.Rasterizer.State = new D3D11.RasterizerState(device, new D3D11.RasterizerStateDescription()
-            {
-                CullMode = D3D11.CullMode.None,
-                FillMode = D3D11.FillMode.Solid,
-                IsMultisampleEnabled = true
-            });
-            deviceContext.Rasterizer.SetViewport(0, 0, (int)swapChainPanel.Width, (int)swapChainPanel.Height);
+            
+            deviceContext.Rasterizer.SetViewport(0, 0, (int)swapChainPanel.ActualWidth, (int)swapChainPanel.ActualHeight);
 
             CompositionTarget.Rendering += CompositionTarget_Rendering;
             Application.Current.Suspending += Current_Suspending;
@@ -168,7 +159,7 @@ namespace UWP3DTest
             isDXInitialized = true;
         }
 
-        D3D11.Buffer triangleVertBuffer;
+        D3D11.Buffer vertBuffer;
         D3D11.VertexShader vs;
         D3D11.PixelShader ps;
         D3D11.InputLayout vertLayout;
@@ -181,13 +172,13 @@ namespace UWP3DTest
                 new D3D11.InputElement("POSITION", 0, DXGI.Format.R32G32B32_Float, 0)
             };
 
-            using (CompilationResult vsResult = ShaderBytecode.CompileFromFile("vs.hlsl", "main", "vs_4_0"))
+            using (CompilationResult vsResult = ShaderBytecode.CompileFromFile("vs.hlsl", "main", "vs_4_0", ShaderFlags.Debug))
             {
                 vs = new D3D11.VertexShader(device, vsResult.Bytecode.Data);
                 vertLayout = new D3D11.InputLayout(device, vsResult.Bytecode, inputElements);
             }
 
-            using (CompilationResult psResult = ShaderBytecode.CompileFromFile("ps.hlsl", "main", "ps_4_0"))
+            using (CompilationResult psResult = ShaderBytecode.CompileFromFile("ps.hlsl", "main", "ps_4_0", ShaderFlags.Debug))
                 ps = new D3D11.PixelShader(device, psResult.Bytecode.Data);
 
             deviceContext.VertexShader.Set(vs);
@@ -198,7 +189,9 @@ namespace UWP3DTest
                 new RawVector3( 0.5f, -0.5f, 0.5f ),
                 new RawVector3( -0.5f, -0.5f, 0.5f )
             };
-            triangleVertBuffer = D3D11.Buffer.Create(device, D3D11.BindFlags.VertexBuffer, verts);
+            vertBuffer = D3D11.Buffer.Create(device, D3D11.BindFlags.VertexBuffer, verts);
+            deviceContext.InputAssembler.SetVertexBuffers(0,
+                new D3D11.VertexBufferBinding(vertBuffer, Utilities.SizeOf<RawVector3>(), 0));
 
             deviceContext.InputAssembler.InputLayout = vertLayout;
             deviceContext.InputAssembler.PrimitiveTopology = D3D.PrimitiveTopology.TriangleList;
@@ -218,10 +211,9 @@ namespace UWP3DTest
         }
         private void RenderScene()
         {
+            this.deviceContext.OutputMerger.SetRenderTargets(this.backBufferView);
             this.deviceContext.ClearRenderTargetView(this.backBufferView, new RawColor4(red, green, blue, 0));
 
-            deviceContext.InputAssembler.SetVertexBuffers(0,
-                new D3D11.VertexBufferBinding(triangleVertBuffer, Utilities.SizeOf<RawVector3>(), 0));
             deviceContext.Draw(verts.Length, 0);
 
             this.swapChain.Present(0, DXGI.PresentFlags.None);
